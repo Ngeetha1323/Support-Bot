@@ -1,5 +1,3 @@
-# img_generate.py
-
 import streamlit as st
 import requests
 

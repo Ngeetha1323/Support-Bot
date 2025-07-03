@@ -1,5 +1,3 @@
-# file_upload.py
-
 import streamlit as st
 from PIL import Image
 
