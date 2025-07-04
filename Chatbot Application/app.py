@@ -1,133 +1,153 @@
 import streamlit as st
-import requests
-import os
 import json
-from setting import load_users, save_users, save_chat, CHATBOT_CSS
+import os
+import requests
+import datetime
+from setting import THEMES, LANGUAGES, apply_theme, load_lottie_url, inject_login_css
+from streamlit_lottie import st_lottie
 
-# Page config
-st.set_page_config(page_title="🤖 AI ChatBot", layout="wide")
-st.markdown(CHATBOT_CSS, unsafe_allow_html=True)
+# ==== CONFIG ====
+API_URL = "http://localhost:8000/chat"
+USER_DB = "users.json"
+st.set_page_config(page_title="Chatbot App", layout="centered")
 
-MISTRAL_API_KEY = "crJ3S6ZZkKRI4wIsykWaPd0sL4RmHnVD"
-API_URL = "https://api.mistral.ai/v1/chat/completions"
+# Load Lottie animation
+lottie_animation = load_lottie_url("https://lottie.host/2e578582-5b3d-4c10-9709-d1672dfac13a/lv6GASw1hV.json")
 
-# Session init
-for key, default in [
-    ("logged_in", False),
-    ("user_id", ""),
-    ("chat_log", []),
-    ("pending_prompt", None),
-    ("theme", "light"),
-    ("language", "English"),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
+# Inject CSS
+inject_login_css()
 
-def load_chats(user_id):
-    folder = "chats"
-    os.makedirs(folder, exist_ok=True)
-    user_file = os.path.join(folder, f"{user_id}_chats.json")
-    if os.path.exists(user_file):
-        with open(user_file, "r") as f:
-            return json.load(f)
-    return []
+# ==== SESSION INIT ====
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user_id = ""
 
-# -------- LOGIN PAGE ----------
+if "chat_log" not in st.session_state:
+    st.session_state.chat_log = []
+
+# ==== USER DB ====
+if not os.path.exists(USER_DB):
+    with open(USER_DB, "w") as f:
+        json.dump({}, f)
+
+def load_users():
+    with open(USER_DB, "r") as f:
+        return json.load(f)
+
+def save_users(users):
+    with open(USER_DB, "w") as f:
+        json.dump(users, f)
+
+def save_chat(user_id, chat_log):
+    os.makedirs("chat_history", exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"chat_history/{user_id}_{timestamp}.json"
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(chat_log, f)
+    return filename
+
+def search_chats(user_id, query):
+    results = []
+    if not os.path.exists("chat_history"):
+        return results
+    for file in os.listdir("chat_history"):
+        if file.startswith(user_id):
+            with open(f"chat_history/{file}", "r", encoding="utf-8") as f:
+                chat = json.load(f)
+                for sender, msg in chat:
+                    if query.lower() in msg.lower():
+                        results.append((file, sender, msg))
+    return results
+
+# ==== UI ====
 if not st.session_state.logged_in:
-    users = load_users()
-    st.markdown("<div class='login-box neon-box'><h2>🔐 Login or Register</h2></div>", unsafe_allow_html=True)
-    mode = st.radio("Select Mode", ["Login", "Register"], horizontal=True)
-    email = st.text_input("Email")
-    pwd = st.text_input("Password", type="password")
+    apply_theme("Soft Gradient")
 
-    if mode == "Login":
-        if st.button("Login", use_container_width=True):
-            if users.get(email) == pwd:
+    st.markdown("<div class='lottie-container'>", unsafe_allow_html=True)
+    if lottie_animation:
+        st_lottie(lottie_animation, height=200, key="girl")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+    st.title("🔐 Login or Register")
+    menu = st.radio("Choose option", ["Login", "Register"], horizontal=True)
+    users = load_users()
+
+    if menu == "Login":
+        email = st.text_input("📧 Email")
+        password = st.text_input("🔒 Password", type="password")
+        if st.button("🔓 Login"):
+            if email in users and users[email] == password:
                 st.session_state.logged_in = True
                 st.session_state.user_id = email
-                st.success("✅ Login successful!")
                 st.rerun()
             else:
                 st.error("❌ Invalid credentials.")
     else:
-        confirm = st.text_input("Confirm password", type="password")
-        if st.button("Register", use_container_width=True):
+        email = st.text_input("📧 New Email")
+        password = st.text_input("🔑 Password", type="password")
+        confirm = st.text_input("✅ Confirm Password", type="password")
+        if st.button("📝 Register"):
             if email in users:
-                st.warning("⚠️ User already exists.")
-            elif not email or pwd != confirm:
-                st.warning("⚠️ Fill all fields correctly.")
+                st.warning("⚠️ User exists.")
+            elif password != confirm:
+                st.warning("❗ Passwords mismatch.")
+            elif not email or not password:
+                st.warning("Please fill all fields.")
             else:
-                users[email] = pwd
+                users[email] = password
                 save_users(users)
-                st.success("🎉 Registered! Please login.")
+                st.success("🎉 Registered! Login now.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# -------- CHAT PAGE ----------
 else:
-    st.markdown("<div class='main-header neon-gradient-text'> 🤖 Support ChatBot</div>", unsafe_allow_html=True)
-
     with st.sidebar:
-        st.markdown("<div class='sidebar-box neon-box'>", unsafe_allow_html=True)
-        st.header("⚙️ Settings")
+        st.markdown("### 💬 Chatbot Menu")
+        theme = st.selectbox("🎨 Select Theme", list(THEMES.keys()), index=0)
+        language = st.selectbox("🌐 Language", LANGUAGES, index=0)
+        apply_theme(theme)
 
-        if st.button("✨ New Chat", use_container_width=True):
+        if st.button("📝 New Chat"):
             save_chat(st.session_state.user_id, st.session_state.chat_log)
             st.session_state.chat_log = []
             st.rerun()
 
-        if st.button("🧹 Clear Chat", use_container_width=True):
-            st.session_state.chat_log = []
-            st.rerun()
+        if st.button("🔍 Search Chats"):
+            term = st.text_input("Search:", key="search_term")
+            if term:
+                results = search_chats(st.session_state.user_id, term)
+                for file, sender, msg in results:
+                    st.markdown(f"📁 *{file}* — *{sender}*: {msg}")
 
-        chats = load_chats(st.session_state.user_id)
-        chat_titles = [" > ".join(msg[1][:30].split()[:5]) + "..." if msg else "(Empty)" for chat in chats for msg in chat[:1]]
-        if chat_titles:
-            selected_index = st.selectbox("📁 Old Chats", range(len(chats)), format_func=lambda i: chat_titles[i])
-            if chats:
-                st.session_state.chat_log = chats[selected_index]
-                st.success("Loaded old chat!")
+        if st.button("📤 Save Chat"):
+            filename = save_chat(st.session_state.user_id, st.session_state.chat_log)
+            st.success(f"✅ Saved: {filename}")
 
-        st.text_input("🔍 Search in Chats")
-        st.selectbox("🎨 Theme", ["light", "dark"], key="theme")
-        st.selectbox("🌐 Language", ["English", "தமிழ்", "हिंदी"], key="language")
-
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("🔒 Logout"):
             save_chat(st.session_state.user_id, st.session_state.chat_log)
             st.session_state.logged_in = False
+            st.session_state.user_id = ""
+            st.session_state.chat_log = []
             st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
 
-    user_input = st.text_input("Ask me anything...")
-    if st.button("Send", use_container_width=True) and user_input.strip():
-        st.session_state.chat_log.append(("You", user_input))
-        st.session_state.chat_log.append(("AI", "Thinking..."))
-        st.session_state.pending_prompt = user_input
-        st.rerun()
+    st.subheader(f"👋 Hello, {st.session_state.user_id}!")
+    st.caption(f"🌐 Chatting in: *{language}*")
 
-    for sender, msg in st.session_state.chat_log:
-        role = "user" if sender == "You" else "bot"
-        row_class = "message-row user" if role == "user" else "message-row"
-        bubble_class = f"chat-bubble {role} neon-bubble"
-        st.markdown(f'<div class="{row_class}"><div class="{bubble_class}">{msg}</div></div>', unsafe_allow_html=True)
-
-    if st.session_state.pending_prompt:
-        with st.spinner("Bot is thinking…"):
+    user_input = st.text_area("📝 Your question:")
+    if st.button("🚀 Ask") and user_input.strip():
+        with st.spinner("🤖 Thinking..."):
             try:
-                headers = {
-                    "Authorization": f"Bearer {MISTRAL_API_KEY}",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "model": "mistral-medium",
-                    "messages": [{"role": "user", "content": st.session_state.pending_prompt}]
-                }
-                response = requests.post(API_URL, headers=headers, json=payload)
-                response.raise_for_status()
-                result = response.json()
-                reply = result["choices"][0]["message"]["content"].strip()
+                prompt = f"Please respond in {language} only:\n\n{user_input}"
+                response = requests.post(API_URL, json={"prompt": prompt})
+                reply = response.json().get("response", "(No reply)")
             except Exception as e:
-                reply = f"(Error): {e}"
+                reply = f"(Server error): {e}"
 
-        st.session_state.chat_log.pop()
-        st.session_state.chat_log.append(("AI", reply))
-        st.session_state.pending_prompt = None
-        st.rerun()
+        st.session_state.chat_log.append(("👤 You", user_input))
+        st.session_state.chat_log.append(("🤖 AI", reply))
+
+    if st.session_state.chat_log:
+        st.subheader("📜 Chat History")
+        for sender, msg in st.session_state.chat_log:
+            bubble = f"<div style='padding:10px;margin:5px 0;border-radius:10px;background:#f1f1f1'><b>{sender}:</b> {msg}</div>"
+            st.markdown(bubble, unsafe_allow_html=True)

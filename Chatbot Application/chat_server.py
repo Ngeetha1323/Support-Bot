@@ -4,7 +4,7 @@ import requests
 import os
 
 # ==== 🔐 API Key ====
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "crJ3S6ZZkKRI4wIsykWaPd0sL4RmHnVD")  # Replace this with a secure method in production
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "M9khCR8YtySqG8pEIz1vOTOJQokafUkX")  # Replace this with a secure method in production
 
 # ==== 🚀 FastAPI App ====
 app = FastAPI()
